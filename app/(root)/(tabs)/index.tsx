@@ -11,7 +11,7 @@ export default function Index() {
       }}
     >
       <Text className="text-center font-rubikSemiBold">
-        app/index.tsx t edit this screen.
+        app/index.tsx to saif khan edit this screen.
       </Text>
       <Link href={"/sign-in"}>Sign in</Link>
       <Link href={"/explore"}>Explore</Link>
