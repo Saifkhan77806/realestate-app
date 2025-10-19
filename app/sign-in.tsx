@@ -17,9 +17,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 const signIn = () => {
   const { refetch, isLogged, loading, user } = useGlobalContext();
 
-  if (!loading && !isLogged) {
-    return <Redirect href={"/"} />;
-  }
+  // if (!loading && !isLogged) {
+  //   return <Redirect href={"/"} />;
+  // }
   const handleLogin = async () => {
     const result = await login();
     if (result) {
