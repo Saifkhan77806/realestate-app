@@ -1,20 +1,19 @@
 import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
+import { openAuthSessionAsync } from "expo-web-browser";
 import {
   Account,
   Avatars,
   Client,
   Databases,
   OAuthProvider,
+  Query,
+  Storage,
 } from "react-native-appwrite";
 
-// Required for Expo OAuth flow
-WebBrowser.maybeCompleteAuthSession();
-
 export const config = {
-  platform: "com.khan.estate", // your bundle identifier from app.json
+  platform: "com.jsm.restate",
   endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
-  projectid: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
+  projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
   databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
   galleriesCollectionId:
     process.env.EXPO_PUBLIC_APPWRITE_GALLERIES_COLLECTION_ID,
@@ -22,87 +21,146 @@ export const config = {
   agentsCollectionId: process.env.EXPO_PUBLIC_APPWRITE_AGENTS_COLLECTION_ID,
   propertiesCollectionId:
     process.env.EXPO_PUBLIC_APPWRITE_PROPERTIES_COLLECTION_ID,
+  bucketId: process.env.EXPO_PUBLIC_APPWRITE_BUCKET_ID,
 };
 
 export const client = new Client();
-
 client
-  .setEndpoint(config.endpoint!) // ✅ fixed typo
-  .setProject(config.projectid!)
-  .setPlatform(config.platform!); // needed for mobile SDK
+  .setEndpoint(config.endpoint!)
+  .setProject(config.projectId!)
+  .setPlatform(config.platform!);
 
-export const account = new Account(client);
 export const avatar = new Avatars(client);
-export const database = new Databases(client);
+export const account = new Account(client);
+export const databases = new Databases(client);
+export const storage = new Storage(client);
 
 export async function login() {
   try {
-    const redirectUri = Linking.createURL("/"); // e.g. com.khan.estate://
-    console.log("Redirect URI:", redirectUri);
+    const redirectUri = Linking.createURL("/");
 
-    // ✅ make sure to await this
-    const response = await account.createOAuth2Token({
-      provider: OAuthProvider.Google,
-      success: redirectUri,
-      failure: redirectUri,
-    });
+    const response = await account.createOAuth2Token(
+      OAuthProvider.Google,
+      redirectUri
+    );
+    if (!response) throw new Error("Create OAuth2 token failed");
 
-    if (!response) throw new Error("Failed to start OAuth flow");
-
-    console.log("OAuth URL:", response.toString());
-
-    // ✅ Updated Expo WebBrowser usage
-    const browserResult = await WebBrowser.openAuthSessionAsync(
+    const browserResult = await openAuthSessionAsync(
       response.toString(),
       redirectUri
     );
-
-    if (browserResult.type !== "success") {
-      throw new Error("User cancelled or login failed");
-    }
+    if (browserResult.type !== "success")
+      throw new Error("Create OAuth2 token failed");
 
     const url = new URL(browserResult.url);
-    const secret = url.searchParams.get("secret");
-    const userId = url.searchParams.get("userId");
+    const secret = url.searchParams.get("secret")?.toString();
+    const userId = url.searchParams.get("userId")?.toString();
+    if (!secret || !userId) throw new Error("Create OAuth2 token failed");
 
-    if (!secret || !userId) throw new Error("Invalid redirect parameters");
-
-    const session = await account.createSession({ userId, secret });
+    const session = await account.createSession(userId, secret);
     if (!session) throw new Error("Failed to create session");
 
-    console.log("Login success:", session);
     return true;
   } catch (error) {
-    console.error("Login Error:", error);
+    console.error(error);
     return false;
   }
 }
 
 export async function logout() {
   try {
-    await account.deleteSessions();
-    return true;
+    const result = await account.deleteSession("current");
+    return result;
   } catch (error) {
-    console.error("Logout Error:", error);
+    console.error(error);
     return false;
   }
 }
 
 export async function getCurrentUser() {
   try {
-    const response = await account.get();
-    if (response.$id) {
-      const useAvatar = avatar.getInitials({ name: response.name });
-      // console.log("avatar",useAvatar)
+    const result = await account.get();
+    if (result.$id) {
+      const userAvatar = avatar.getInitials(result.name);
+
       return {
-        ...response,
-        avatar: useAvatar.toString()
-          ? "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ_InUxO_6BhylxYbs67DY7-xF0TmEYPW4dQQ&s"
-          : useAvatar.toString(),
+        ...result,
+        avatar: userAvatar.toString(),
       };
     }
+
+    return null;
   } catch (error) {
-    console.error("Get User Error:", error);
+    console.log(error);
+    return null;
+  }
+}
+
+export async function getLatestProperties() {
+  try {
+    const result = await databases.listDocuments(
+      config.databaseId!,
+      config.propertiesCollectionId!,
+      [Query.orderAsc("$createdAt"), Query.limit(5)]
+    );
+
+    return result.documents;
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+export async function getProperties({
+  filter,
+  query,
+  limit,
+}: {
+  filter: string;
+  query: string;
+  limit?: number;
+}) {
+  try {
+    const buildQuery = [Query.orderDesc("$createdAt")];
+
+    if (filter && filter !== "All")
+      buildQuery.push(Query.equal("type", filter));
+
+    if (query)
+      buildQuery.push(
+        Query.or([
+          Query.search("name", query),
+          Query.search("address", query),
+          Query.search("type", query),
+        ])
+      );
+
+    if (limit) buildQuery.push(Query.limit(limit));
+
+    const result = await databases.listDocuments(
+      config.databaseId!,
+      config.propertiesCollectionId!,
+      buildQuery
+    );
+
+    return result.documents;
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+// write function to get property by id
+export async function getPropertyById({ id }: { id: string }) {
+  try {
+    const result = await databases.getDocument(
+      config.databaseId!,
+      config.propertiesCollectionId!,
+      id
+    );
+    return result;
+  } catch (error) {
+    console.error(error);
     return null;
   }
 }
